@@ -1,0 +1,5 @@
+fib = a => b => do
+  (print a)
+  (fib b $ add a b);
+
+main = fib 0 1

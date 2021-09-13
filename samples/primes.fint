@@ -1,0 +1,19 @@
+filterll = pred => tup => (pred $ fst tup)
+                            (_ => [fst tup, _ => filterll pred $ snd tup _])
+                            (_ => filterll pred $ snd tup _) _;
+
+not = b => b false true;
+
+fst = get 0;
+snd = get 1;
+
+printll = tup => do
+  (print $ fst tup)
+  (self $ snd tup _);
+
+primes = sieve $ countFrom 2
+  where
+    countFrom = n => [n, _ => countFrom $ succ n];
+    sieve = tup => [fst tup, _ => sieve $ filterll (x => not $ eq 0 $ mod x $ fst tup) $ snd tup _];
+
+main = printll primes;

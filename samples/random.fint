@@ -1,0 +1,10 @@
+# this is some functions I fint useful
+
+# looks better than having a random _
+ap = f => f _;
+
+# tuple accessing
+fst = get 0;
+snd = get 1;
+
+compose = f => g => x => f $ g x;
