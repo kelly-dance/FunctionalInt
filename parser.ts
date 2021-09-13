@@ -138,7 +138,6 @@ export const parseFnDecl: Parser<FintFunct> = (tokens, pos, scope) => {
   if(!success) return [false, null, pos];
   const [arg, _, body] = results!;
   subScope.add(arg.name);
-  subScope.add('self');
   return [true, new FintFunct(scope, arg, body), newPos];
 }
 
@@ -188,7 +187,7 @@ export const parseValue: Parser<FintValue> = anyParser<FintValue>(parseTuple, pa
 export const parseCallable: Parser<FintValue> = anyParser<FintValue>(parseTuple, parseDollar, parseFnDecl, parseParenWrappedVal, parseRef, parseNumber);
 
 export const parseAssignment: Parser<FintAssignment> = (tokens, position, scope) => {
-  const subScope = new FintScope(scope);
+  const subScope = new FintScope(scope, Symbol('assignmentScope'));
   const [success, results, newPos] = composeParsers(parseRef, parseToken('='), parseValue)(tokens, position, subScope);
   if(!success) return [false, null, position];
   const [ref, _, body] = results!;

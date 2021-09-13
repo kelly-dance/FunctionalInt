@@ -51,7 +51,7 @@ export class FintMeta {
 
 export class FintScope {
   private readonly values: string[];
-  constructor(public readonly parent?: FintScope, private location?: symbol){
+  constructor(public readonly parent?: FintScope, public location?: symbol){
     this.values = [];
   }
   

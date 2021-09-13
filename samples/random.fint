@@ -3,8 +3,35 @@
 # looks better than having a random _
 ap = f => f _;
 
-# tuple accessing
-fst = get 0;
-snd = get 1;
-
 compose = f => g => x => f $ g x;
+
+or = a => b => a true b;
+and = a => b => a b false;
+not = a => a false true;
+
+from = a => [a, _ => from $ succ a];
+range = a => b => (lt a b) ([a, _ => range (succ a) b]) _;
+
+modLarge = b => a => (lt a $ mult b b) (_ => mod b a) (_ => mod b $ modLarge (mult b b) a) _;
+
+# assumes infinite length
+filterll = pred => tup => (pred $ fst tup)
+                            (_ => [fst tup, _ => filterll pred $ snd tup _])
+                            (_ => filterll pred $ snd tup _) _;
+
+printll = tup => do
+  (print $ fst tup)
+  (self $ snd tup _);
+
+# has logic for lls with ends
+filterlle = pred => tup => (pred $ fst tup)
+                            (_ => [fst tup, _ => filterlle pred $ snd tup _])
+                            (_ => (neq _ $ snd tup _) (_ => filterlle pred $ snd tup _) (_ => _) _) _;
+
+printlle = tup => do
+  (print $ fst tup)
+  ((eq _ $ snd tup _) (_ => _) (_ => printlle $ snd tup _) _);
+
+sumll = tup => (eq _ $ snd tup _)
+                  (_ => fst tup)
+                  (_ => add (fst tup) (sumll $ snd tup _)) _; 

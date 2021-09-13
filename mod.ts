@@ -4,7 +4,7 @@ import { ops, abs, stack, addLabel, finalize, resolveRef, addArgs } from './macr
 import * as AST from './AST.ts';
 import { FintTypes, CompilationContext, CompileData, locs, builtinScope } from './typesConstansts.ts';
 import { readFile } from './tools.ts';
-import { builtins, internalBuiltIns } from './builtins.ts';
+import { builtins, internalBuiltIns, BuiltIn } from './builtins.ts';
 
 if(!Deno.args.length) Deno.exit();
 const code = readFile(Deno.args[0]);
@@ -19,11 +19,20 @@ const ast = parse(code);
 const compile = (ast: AST.FintAssignment[]): bigint[] => {
   // add builtins to the scope and assign labels
   const builtinLocations: symbol[] = [];
-  for(const builtin of builtins){
+  const check = (b: BuiltIn): boolean => {
+    if(AST.FintVariableReference.instances.some(ref => ref.name === b.name)) return true;
+    return builtins.some(dep => dep.dependsOn.includes(b) && check(dep));
+  }
+  const inUse = builtins.filter(check);
+  for(const builtin of inUse){
     builtinScope.add(builtin.name);
     builtinLocations.push(builtin.loc);
   }
-  const builtinsData = builtins.flatMap(builtin => builtin.impl());
+  const builtinsData = inUse.flatMap(builtin => {
+    const impl = builtin.impl();
+    console.log(builtin.name, impl.length);
+    return impl;
+  });
 
   // used to write compile time variables without splitting up the currently block
   const writeToMemory: CompileData[] = [];

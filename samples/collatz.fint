@@ -1,10 +1,5 @@
-ap = f => f _;
-compose = f => g => x => f $ g x;
-
-collatz = n => ap $ (eq n 1) (_ => 0) (_ => succ $ collatz $ next n)
+collatz = n => false (print n) $ (eq n 1) (_ => 0) (_ => succ $ collatz $ next n) _
   where
-    div2 = n => div n 2;
-    time3plus1 = compose succ $ mult 3;
-    next = n => (eq 0 $ mod n 2) div2 time3plus1 n;
+    next = n => (eq 0 $ mod 2 n) (div 2) (x => succ $ mult 3 x) n;
 
-main = print $ collatz $ ap input;
+main = print $ collatz $ input _;

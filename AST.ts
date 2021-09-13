@@ -31,8 +31,11 @@ export class FintNumberLiteral extends FintValue {
 }
 
 export class FintVariableReference extends FintValue {
+  static instances: FintVariableReference[] = [];
+
   constructor(scope: FintScope, meta: FintMeta, public name: string){
     super(scope, meta);
+    FintVariableReference.instances.push(this);
   }
 
   compile(context: CompilationContext): CompileReturn {
@@ -123,7 +126,6 @@ export class FintCall extends FintValue {
         ...writeToRam(abs(FintTypes.Scope)),
         ...writeToRam(absToPtr(addArgs(stack(-3), abs(2)))), // parent scope
         ...writeToRam(stack(-1)), // arg pointer
-        ...writeToRam(stack(-3)), // self pointer
 
         // copy return location to stack+1
         ...ops.copy(abs(resumeLoc), stack(1)),
@@ -162,7 +164,11 @@ export class FintAssignment extends FintASTConstruct {
     const continueLoc = Symbol(`fintAssignment-${this.ref.name}`);
 
     // variables from evaluations that need to be passed on
-    const forwardMemory: CompileData[] = [];
+    const forwardMemory: CompileData[] = [
+      addLabel(FintTypes.Scope, this.scope.location!),
+      this.scope.parent!.location!,
+      ...this.wheres.map(() => 0),
+    ];
 
     const mainContext: CompilationContext = {
       meta: this.value.meta,

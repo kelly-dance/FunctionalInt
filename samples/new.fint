@@ -1,1 +1,3 @@
-main = print 9999;
+# I pretty much just use this file to test things I am working on
+
+main = print $ mod 2 2193743817234087345897305823045702348570234578872305789

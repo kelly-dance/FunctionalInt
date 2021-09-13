@@ -140,7 +140,7 @@ export const absToPtr = (arg: Arg): Arg => context => {
 /**
  * given a string this returns the location of the variable within the scope as a pointer
  */
-export const resolveRef = (ref: string): Arg => context => {
+export const resolveRef = (ref: string, scopePos: number = -2): Arg => context => {
   if(!context) throw new Error('Context required for this argument');
   const location = context.scope.get(ref);
   if(!location) {
@@ -157,7 +157,7 @@ export const resolveRef = (ref: string): Arg => context => {
     constant: false,
     value: addLabel(0, returnTo), // labeled for that it can be used to store temporary values
     insert: [
-      ...ops.copy(stack(-2), ptr(returnTo), context), // copy scope pointer into return location
+      ...ops.copy(stack(scopePos), ptr(returnTo), context), // copy scope pointer into return location
       ...new Array(up).fill(0).flatMap(() => { // repeat to climb to parent scopes
         return ops.copy(absToPtr(addArgs(ptr(returnTo), abs(1))), ptr(returnTo))
       }),
@@ -168,7 +168,10 @@ export const resolveRef = (ref: string): Arg => context => {
 }
 
 /** returns pointer to the value of the int */
-export const resolveIntRefVal = (ref: string): Arg => absToPtr(addArgs(resolvePtr(resolveRef(ref)), abs(1)));
+export const resolveIntPtr = (arg: Arg) => absToPtr(addArgs(resolvePtr(arg), abs(1)));
+
+/** returns pointer to the value of the int */
+export const resolveIntRefVal = (ref: string, scopePos: number = -2): Arg => resolveIntPtr(resolveRef(ref, scopePos));
 
 export const ops = {
   add: (a: Arg, b: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 1n, [a,b,out], tag),
