@@ -23,22 +23,15 @@ export class Reducible {
       throw new Error('A reducible argument cannot be pointed to');
   }
 }
+
 export class HangingLabel {
   public labels: symbol[];
   constructor(label: symbol){
     this.labels = [label]; // easier to polymorphic with other options
   }
 }
-export type CompileData = number | bigint | symbol | { value: number | bigint | symbol, labels: symbol[] } | Reducible | HangingLabel;
 
-export enum FintTypes {
-  Int = 0,
-  FunctionDef = 1,
-  FunctionInstance = 2,
-  Scope = 3,
-  Tuple = 4,
-  None = 99,
-}
+export type CompileData = number | bigint | symbol | { value: number | bigint | symbol, labels: symbol[] } | Reducible | HangingLabel;
 
 export class FintMeta {
   constructor(

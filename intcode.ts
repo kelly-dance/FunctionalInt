@@ -1,3 +1,5 @@
+// this is just taken from my advent of code 2019 solutions. havent added anything to it during this project
+
 import { DefaultMap, digitsOfBigInt, bigIntFromDigits, range } from './tools.ts';
 
 export class MachineMemory extends DefaultMap<bigint, bigint>{
@@ -137,6 +139,7 @@ export const prepareState = (program: (bigint | number)[]): MachineState => {
   }
 }
 
+// debug stuffs
 const opNameMap = new Map<bigint, string>();
 opNameMap.set(1n, 'ADD');
 opNameMap.set(2n, 'MULT');
@@ -214,6 +217,8 @@ export const run = (state: MachineState, mInterface: MachineInterface, debug = f
   }
   return state;
 }
+
+// everything below this is unused for this project. its just kinda here
 
 type ScriptMessageProvide = {
   mode: 'provide',

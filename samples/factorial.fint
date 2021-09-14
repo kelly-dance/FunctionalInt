@@ -1,2 +1,2 @@
 fac = x => (eq 0 x) (_ => 1) (_ => mult x $ fac $ sub x 1) _;
-main = print $ fac 7;
+main = print $ fac 10;

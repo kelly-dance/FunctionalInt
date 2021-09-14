@@ -1,4 +1,4 @@
-import { CompileData, CompilationContext, FintScope, FintMeta, FintTypes, HangingLabel, locs } from './typesConstansts.ts';
+import { CompileData, CompilationContext, FintScope, FintMeta, HangingLabel, locs } from './typesConstansts.ts';
 import { ops, ptr, abs, stack, addLabel, resolvePtr, writeToRam, addArgs, absToPtr, resolveRef, stackToPtr } from './macros.ts';
 
 type CompileReturn = {
@@ -23,9 +23,9 @@ export class FintNumberLiteral extends FintValue {
     const memLoc = Symbol('intMemoryLocation')
     return {
       immediate: [
-        ...ops.copy(abs(memLoc), stack(0)),
+        ...ops.copy(abs(this.value), stack(0)),
       ],
-      memory: [addLabel(FintTypes.Int, memLoc), this.value],
+      memory: [],
     }
   }
 }
@@ -60,12 +60,11 @@ export class FintTuple extends FintValue {
         ...ops.copy(stack(-2), stack(0)), // copy stack pointer
         ...ops.moveStack(2),
         ...ops.copy(ptr(locs.ramPointer), stack(-1)), // save tuple location
-        ...writeToRam(abs(FintTypes.Tuple)), // data type header
         ...ops.addTo(abs(this.values.length), ptr(locs.ramPointer)), // allocate space for values
         ...compiled.flatMap((c, i) => {
           return [
             ...c.immediate,
-            ...ops.copy(stack(0), addArgs(abs(1 + i), stackToPtr(stack(-1)))), // write into the tuple
+            ...ops.copy(stack(0), addArgs(abs(i), stackToPtr(stack(-1)))), // write into the tuple
           ];
         }),
         ...ops.moveStack(-2),
@@ -86,8 +85,6 @@ export class FintCall extends FintValue {
     const forwardMemory = [];
 
     const resumeLoc = Symbol('funcCall');
-    const jumpSite = Symbol('funcCallJumpSite');
-    const deferenceHelper = Symbol('funcCallDeferenceHelper');
 
     return {
       immediate: [
@@ -123,21 +120,13 @@ export class FintCall extends FintValue {
 
         // create scope in stack+0
         ...ops.copy(ptr(locs.ramPointer), stack(0)),
-        ...writeToRam(abs(FintTypes.Scope)),
-        ...writeToRam(absToPtr(addArgs(stack(-3), abs(2)))), // parent scope
+        ...writeToRam(addArgs(stack(-3), ptr(1))), // parent scope
         ...writeToRam(stack(-1)), // arg pointer
 
         // copy return location to stack+1
         ...ops.copy(abs(resumeLoc), stack(1)),
 
-        // stack-3 is pointer to function instance, the second position in function instance is
-        // pointer to function definition, which he are going to
-        // set expression should return a pointer to that pointer
-        ...ops.add(stack(-3), abs(1), ptr(deferenceHelper)),
-        // follow that pointer, now we have a pointer to the function definition and add 1
-        ...ops.add(ptr(0, deferenceHelper), abs(1), ptr(jumpSite)), 
-        // jump to function start
-        ...ops.jump(abs(0, jumpSite)),
+        ...ops.jump(resolvePtr(stackToPtr(stack(-3)))),
 
         new HangingLabel(resumeLoc),
         // restore stack location
@@ -165,8 +154,7 @@ export class FintAssignment extends FintASTConstruct {
 
     // variables from evaluations that need to be passed on
     const forwardMemory: CompileData[] = [
-      addLabel(FintTypes.Scope, this.scope.location!),
-      this.scope.parent!.location!,
+      addLabel(this.scope.parent!.location!, this.scope.location!),
       ...this.wheres.map(() => 0),
     ];
 
@@ -190,10 +178,6 @@ export class FintAssignment extends FintASTConstruct {
         ...ops.moveStack(2), // constucted scope is now at stack-2
         // define wheres
         ...this.wheres.flatMap(where => {
-          const subContext: CompilationContext = {
-            meta: where.meta,
-            scope: where.scope,
-          }
           const {immediate, memory} = where.compile(mainContext);
           forwardMemory.push(...memory);
           return [
@@ -232,12 +216,11 @@ export class FintFunct extends FintValue {
       immediate: [
         // create inner function instance to return
         ...ops.copy(ptr(locs.ramPointer), stack(0)),
-        ...writeToRam(abs(FintTypes.FunctionInstance)), // data type
         ...writeToRam(abs(defLoc)), // inner function def address
         ...writeToRam(stack(-2)), // scope
       ],
       memory: [
-        addLabel(FintTypes.FunctionDef, defLoc),
+        new HangingLabel(defLoc),
         ...ops.moveStack(2),
   
         ...body.immediate,

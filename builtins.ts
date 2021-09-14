@@ -1,5 +1,5 @@
-import { CompileData, FintScope, FintTypes, HangingLabel, locs, CompilationContext, FintMeta, builtinScope } from './typesConstansts.ts';
-import { ops, ptr, abs, stack, addLabel, resolvePtr, writeToRam, addArgs, absToPtr, resolveRef, resolveIntRefVal, writeIntToRam } from './macros.ts';
+import { CompileData, FintScope, HangingLabel, locs, CompilationContext, FintMeta, builtinScope } from './typesConstansts.ts';
+import { ops, ptr, abs, stack, addLabel, resolvePtr, writeToRam, addArgs, absToPtr, resolveRef } from './macros.ts';
 
 // ALL BUIlTINS USE SCOPE AT STACK+0
 // STACK+1 IS RESERVED
@@ -13,7 +13,7 @@ const none: BuiltIn = (()=>{
     loc,
     name: '_',
     dependsOn: [],
-    impl: () => [addLabel(FintTypes.None, loc)],
+    impl: () => [addLabel(0, loc)],
   }
 })();
 
@@ -43,12 +43,12 @@ const makeBuiltin = (
       }
       return [
         // Function Instance
-        addLabel(FintTypes.FunctionInstance, loc),
+        new HangingLabel(loc),
         def,
         locs.builtinScopeSym,
   
         // Function Def
-        addLabel(FintTypes.FunctionDef, def),
+        new HangingLabel(def),
         ...fac(context),
 
         // copy the return value (if needed)
@@ -91,7 +91,7 @@ const makeMultiArgBuiltin = (
     
         if(args.length === 1) return { // this is the base definition
           impl: [
-            addLabel(FintTypes.FunctionDef, selfLoc),
+            new HangingLabel(selfLoc),
       
             // body
             ...fac(context),
@@ -109,12 +109,11 @@ const makeMultiArgBuiltin = (
         return {
           impl: [
             // Outer Function Def
-            addLabel(FintTypes.FunctionDef, selfLoc),
+            new HangingLabel(selfLoc),
     
             // note, there is no stack shift here. any calls to resolveRef would fail
             // create inner function instance to return
             ...ops.copy(ptr(locs.ramPointer), stack(2)),
-            ...writeToRam(abs(FintTypes.FunctionInstance)), // data type
             ...writeToRam(abs(loc)), // inner function def address
             ...writeToRam(stack(0)), // scope
     
@@ -134,8 +133,7 @@ const makeMultiArgBuiltin = (
 
       return [
         // Root Function Instance
-        addLabel(FintTypes.FunctionInstance, instanceLoc),
-        loc,
+        addLabel(loc, instanceLoc),
         locs.builtinScopeSym,
   
         // Function impls
@@ -147,7 +145,7 @@ const makeMultiArgBuiltin = (
 
 const print = makeBuiltin('print', context => {
   return [
-    ...ops.write(resolveIntRefVal('arg', 0), context),
+    ...ops.write(resolveRef('arg', 0), context),
     ...ops.copy(resolveRef('_', 0), stack(0), context),
   ]
 }, false, [none]);
@@ -156,15 +154,15 @@ const input = makeBuiltin('input', context => {
   const result = Symbol(`addResult`)
   return [
     ...ops.read(ptr(result)),
-    ...writeIntToRam(abs(0, result), stack(0)), // write and save location
+    ...ops.copy(abs(0, result), stack(0)), // write and save location
   ]
 }, false);
 
 const succ = makeBuiltin('succ', context => {
   const result = Symbol('succResult');
   return [
-    ...ops.add(resolveIntRefVal('arg', 0), abs(1), ptr(result), context), // add 1
-    ...writeIntToRam(abs(0, result), stack(0)), // write to memory and save location
+    ...ops.add(resolveRef('arg', 0), abs(1), ptr(result), context), // add 1
+    ...ops.copy(abs(0, result), stack(0)), // write to memory and save location
   ]
 }, false);
 
@@ -172,21 +170,21 @@ const add = makeMultiArgBuiltin('add', ['a', 'b'], context => {
   const result = Symbol(`addResult`)
   return [
     ...ops.add(
-      resolveIntRefVal('a', 0),
-      resolveIntRefVal('b', 0),
+      resolveRef('a', 0),
+      resolveRef('b', 0),
       ptr(result),
       context
     ),
-    ...writeIntToRam(abs(0, result), stack(0)), // write and save location
+    ...ops.copy(abs(0, result), stack(0)), // write and save location
   ]
 }, false);
 
 const sub = makeMultiArgBuiltin('sub', ['a', 'b'], context => {
   const result = Symbol(`subResult`)
   return [
-    ...ops.mult(resolveIntRefVal('b', 0), abs(-1), ptr(result), context), // result = -b
-    ...ops.addTo(resolveIntRefVal('a', 0), ptr(result), context), // result += a
-    ...writeIntToRam(abs(0, result), stack(0)), // write and save location
+    ...ops.mult(resolveRef('b', 0), abs(-1), ptr(result), context), // result = -b
+    ...ops.addTo(resolveRef('a', 0), ptr(result), context), // result += a
+    ...ops.copy(abs(0, result), stack(0)), // write and save location
   ]
 }, false);
 
@@ -194,12 +192,12 @@ const mult = makeMultiArgBuiltin('mult', ['a', 'b'], context => {
   const result = Symbol(`multResult`)
   return [
     ...ops.mult(
-      resolveIntRefVal('a', 0),
-      resolveIntRefVal('b', 0),
+      resolveRef('a', 0),
+      resolveRef('b', 0),
       ptr(result),
       context
     ),
-    ...writeIntToRam(abs(0, result), stack(0)), // write and save location
+    ...ops.copy(abs(0, result), stack(0)), // write and save location
   ]
 }, false);
 
@@ -220,7 +218,7 @@ const eq = makeMultiArgBuiltin('eq', ['a', 'b'], context => {
   const trueLoc = Symbol(`eqTrueBranch`);
   const endLoc = Symbol(`eqEnd`);
   return [
-    ...ops.eq(resolveIntRefVal('a', 0), resolveIntRefVal('b', 0), ptr(boolLoc), context),
+    ...ops.eq(resolveRef('a', 0), resolveRef('b', 0), ptr(boolLoc), context),
     ...ops.jt(abs(0, boolLoc), abs(trueLoc)),
     
     // false branch (not equal)
@@ -240,7 +238,7 @@ const neq = makeMultiArgBuiltin('neq', ['a', 'b'], context => {
   const trueLoc = Symbol(`eqTrueBranch`);
   const endLoc = Symbol(`eqEnd`);
   return [
-    ...ops.eq(resolveIntRefVal('a', 0), resolveIntRefVal('b', 0), ptr(boolLoc), context),
+    ...ops.eq(resolveRef('a', 0), resolveRef('b', 0), ptr(boolLoc), context),
     ...ops.jf(abs(0, boolLoc), abs(trueLoc)),
     
     // false branch (equal)
@@ -260,7 +258,7 @@ const lt = makeMultiArgBuiltin('lt', ['a', 'b'], context => {
   const trueLoc = Symbol(`eqTrueBranch`);
   const endLoc = Symbol(`eqEnd`);
   return [
-    ...ops.lt(resolveIntRefVal('a', 0), resolveIntRefVal('b', 0), ptr(boolLoc), context),
+    ...ops.lt(resolveRef('a', 0), resolveRef('b', 0), ptr(boolLoc), context),
     ...ops.jt(abs(0, boolLoc), abs(trueLoc)),
     
     // false branch
@@ -279,7 +277,7 @@ const getFn = makeMultiArgBuiltin('get', ['pos', 'tup'], context => {
   return [
     ...ops.copy(
       addArgs(
-        addArgs(resolveIntRefVal('pos', 0), abs(1)), // skip the data type tag
+        resolveRef('pos', 0),
         absToPtr(resolvePtr(resolveRef('tup', 0))), // follow to location of tuple and treat it like a pointer
       ),
       stack(0),
@@ -291,10 +289,7 @@ const getFn = makeMultiArgBuiltin('get', ['pos', 'tup'], context => {
 const fst = makeBuiltin('fst', context => {
   return [
     ...ops.copy(
-      addArgs(
-        abs(1), // skip the data type tag 
-        absToPtr(resolvePtr(resolveRef('arg', 0))), // follow to location of tuple and treat it like a pointer
-      ),
+      absToPtr(resolvePtr(resolveRef('arg', 0))), // follow to location of tuple and treat it like a pointer
       stack(0),
       context
     )
@@ -305,7 +300,7 @@ const snd = makeBuiltin('snd', context => {
   return [
     ...ops.copy(
       addArgs(
-        abs(1 + 1), // skip the data type tag and get second value
+        abs(1), // add one to get the second value
         absToPtr(resolvePtr(resolveRef('arg', 0))), // follow to location of tuple and treat it like a pointer
       ),
       stack(0),
@@ -331,8 +326,8 @@ const mod = makeMultiArgBuiltin('mod', ['b', 'a'], context => { // a % b
   const a = Symbol(`modMemoryA`);
   const b = Symbol(`modMemoryB`);
   return [
-    ...ops.copy(resolveIntRefVal('a', 0), ptr(a), context), // save a
-    ...ops.copy(resolveIntRefVal('b', 0), ptr(b), context), // save b
+    ...ops.copy(resolveRef('a', 0), ptr(a), context), // save a
+    ...ops.copy(resolveRef('b', 0), ptr(b), context), // save b
     ...ops.moveStack(2),
     ...ops.copy(ptr(b), stack(0)), // push b (BASE)
     ...ops.mult(ptr(b), abs(-1), stack(1)), // push -b (-BASE)
@@ -375,7 +370,7 @@ const mod = makeMultiArgBuiltin('mod', ['b', 'a'], context => { // a % b
     ...ops.jump(abs(head)),
 
     new HangingLabel(exit),
-    ...writeIntToRam(ptr(a), stack(0)),
+    ...ops.copy(ptr(a), stack(0)),
   ]
 }, false);
 
@@ -392,8 +387,8 @@ const div = makeMultiArgBuiltin('div', ['b', 'a'], context => { // a % b
   const b = Symbol(`divMemoryB`);
   const acc = Symbol(`divMemoryAcc`);
   return [
-    ...ops.copy(resolveIntRefVal('a', 0), ptr(a), context), // save a
-    ...ops.copy(resolveIntRefVal('b', 0), ptr(b), context), // save b
+    ...ops.copy(resolveRef('a', 0), ptr(a), context), // save a
+    ...ops.copy(resolveRef('b', 0), ptr(b), context), // save b
     ...ops.copy(abs(0), ptr(acc)),
     ...ops.moveStack(3),
     ...ops.copy(ptr(b), stack(0)), // push b (BASE)
@@ -441,7 +436,7 @@ const div = makeMultiArgBuiltin('div', ['b', 'a'], context => { // a % b
     ...ops.jump(abs(head)),
 
     new HangingLabel(exit),
-    ...writeIntToRam(ptr(acc), stack(0)),
+    ...ops.copy(ptr(acc), stack(0)),
   ]
 }, false);
 
@@ -486,7 +481,6 @@ export type BuiltIn = {
 const allocateScope: CompileData[] = [
   new HangingLabel(locs.allocateScopeSym),
   ...ops.copy(ptr(locs.ramPointer), stack(3)),
-  ...writeToRam(abs(FintTypes.Scope)),
   ...writeToRam(stack(1)),
   ...ops.addTo(stack(0), ptr(locs.ramPointer)),
   ...ops.copy(stack(3), stack(0)),

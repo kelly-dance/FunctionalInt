@@ -1,3 +1,9 @@
 # I pretty much just use this file to test things I am working on
 
-main = print $ mod 2 2193743817234087345897305823045702348570234578872305789
+printll = tup => do
+  (print $ fst tup)
+  (printll $ snd tup _);
+
+y = [0, _ => x];
+x = [1, _ => y];
+main = printll y;

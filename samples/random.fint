@@ -12,8 +12,6 @@ not = a => a false true;
 from = a => [a, _ => from $ succ a];
 range = a => b => (lt a b) ([a, _ => range (succ a) b]) _;
 
-modLarge = b => a => (lt a $ mult b b) (_ => mod b a) (_ => mod b $ modLarge (mult b b) a) _;
-
 # assumes infinite length
 filterll = pred => tup => (pred $ fst tup)
                             (_ => [fst tup, _ => filterll pred $ snd tup _])
@@ -21,7 +19,7 @@ filterll = pred => tup => (pred $ fst tup)
 
 printll = tup => do
   (print $ fst tup)
-  (self $ snd tup _);
+  (printll $ snd tup _);
 
 # has logic for lls with ends
 filterlle = pred => tup => (pred $ fst tup)

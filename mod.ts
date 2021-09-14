@@ -2,7 +2,7 @@ import * as int from './intcode.ts';
 import { parse } from './parser.ts';
 import { ops, abs, stack, addLabel, finalize, resolveRef, addArgs } from './macros.ts';
 import * as AST from './AST.ts';
-import { FintTypes, CompilationContext, CompileData, locs, builtinScope } from './typesConstansts.ts';
+import { CompilationContext, CompileData, locs, builtinScope } from './typesConstansts.ts';
 import { readFile } from './tools.ts';
 import { builtins, internalBuiltIns, BuiltIn } from './builtins.ts';
 
@@ -67,8 +67,8 @@ const compile = (ast: AST.FintAssignment[]): bigint[] => {
 
     // compile time allocated vaiables
     ...builtinsData, // built in definitions
-    addLabel(FintTypes.Scope, locs.builtinScopeSym), 0, ...builtinLocations, // builtin scope object
-    addLabel(FintTypes.Scope, locs.globalScopeSym), locs.builtinScopeSym, ...ast.map(() => 0), // global scope object
+    addLabel(0, locs.builtinScopeSym), ...builtinLocations, // builtin scope object
+    addLabel(locs.builtinScopeSym, locs.globalScopeSym), ...ast.map(() => 0), // global scope object
     ...writeToMemory, // other compile time variables
 
     // ram position counter 
@@ -87,4 +87,12 @@ console.log(`Generated program size:`, compiled.length);
 if(Deno.args.length >= 2) Deno.writeTextFileSync(Deno.args[1], compiled.join(','))
 
 const state = int.prepareState(compiled);
-int.run(state, int.terminal, false);
+try{
+  int.run(state, int.terminal, false);
+}catch(e){
+  console.error(e);
+}
+
+// for(const key of state.memory.keys()){
+//   console.log(key, state.memory.get(key))
+// }

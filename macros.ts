@@ -1,4 +1,4 @@
-import { CompilationContext, Reducible, CompileData, HangingLabel, locs, FintTypes } from './typesConstansts.ts';
+import { CompilationContext, Reducible, CompileData, HangingLabel, locs } from './typesConstansts.ts';
 
 export enum OpMode {
   pointer = 0,
@@ -149,7 +149,7 @@ export const resolveRef = (ref: string, scopePos: number = -2): Arg => context =
   }
   if('location' in location) {
     // this reduces to a constant
-    return absToPtr(addArgs(abs(location.location), abs(location.forward + 2)))(context);
+    return absToPtr(addArgs(abs(location.location), abs(location.forward + 1)))(context);
   }
   const {up, forward} = location;
   const returnTo = Symbol('resolveRefTarget');
@@ -159,29 +159,36 @@ export const resolveRef = (ref: string, scopePos: number = -2): Arg => context =
     insert: [
       ...ops.copy(stack(scopePos), ptr(returnTo), context), // copy scope pointer into return location
       ...new Array(up).fill(0).flatMap(() => { // repeat to climb to parent scopes
-        return ops.copy(absToPtr(addArgs(ptr(returnTo), abs(1))), ptr(returnTo))
+        // return ops.copy(absToPtr(addArgs(ptr(returnTo), abs(1))), ptr(returnTo))
+        return ops.copy(absToPtr(resolvePtr(ptr(returnTo))), ptr(returnTo))
       }),
-      ...ops.copy(addArgs(ptr(returnTo), abs(2 + forward)), ptr(returnTo)), // move forward and land on the pointer to the desired value
+      ...ops.copy(addArgs(ptr(returnTo), abs(1 + forward)), ptr(returnTo)), // move forward and land on the pointer to the desired value
     ],
     mode: OpMode.pointer,
   }
 }
 
-/** returns pointer to the value of the int */
-export const resolveIntPtr = (arg: Arg) => absToPtr(addArgs(resolvePtr(arg), abs(1)));
-
-/** returns pointer to the value of the int */
-export const resolveIntRefVal = (ref: string, scopePos: number = -2): Arg => resolveIntPtr(resolveRef(ref, scopePos));
-
 export const ops = {
   add: (a: Arg, b: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 1n, [a,b,out], tag),
-  addTo: (a: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => ops.add(a, out, out, context, tag),
+  addTo: (a: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => {
+    if(Math.random() < 0.5) return ops.add(a, out, out, context, tag);
+    return ops.add(out, a, out, context, tag);
+  },
   mult: (a: Arg, b: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 2n, [a,b,out], tag),
-  copy: (from: Arg, to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => ops.mult(from, abs(1), to, context, tag),
+  copy: (from: Arg, to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => {
+    const x = Math.random();
+    if(x < 0.25) return ops.mult(from, abs(1), to, context, tag);
+    if(x < 0.5) return ops.mult(abs(1), from, to, context, tag);
+    if(x < 0.75) return ops.add(from, abs(0), to, context, tag);
+    return ops.add(abs(0), from, to, context, tag);
+  },
   read: (out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 3n, [out], tag),
   write: (val: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 4n, [val], tag),
   jt: (val: Arg, to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 5n, [val, to], tag),
-  jump: (to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => ops.jt(abs(1), to, context, tag),
+  jump: (to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => {
+    if(Math.random() < 0.66) return ops.jt(abs(Math.floor(Math.random()*999)+1), to, context, tag);
+    return ops.jf(abs(0), to, context, tag);
+  },
   jf: (val: Arg, to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 6n, [val, to], tag),
   lt: (a: Arg, b: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 7n, [a,b,out], tag),
   eq: (a: Arg, b: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 8n, [a,b,out], tag),
@@ -194,14 +201,6 @@ export const writeToRam = (val: Arg, context?: CompilationContext): CompileData[
   return [
     ...ops.copy(val, absToPtr(resolvePtr(ptr(locs.ramPointer))), context),
     ...ops.addTo(abs(1), ptr(locs.ramPointer), context),
-  ];
-}
-
-export const writeIntToRam = (val: Arg, saveTo: Arg, context?: CompilationContext): CompileData[] => {
-  return [
-    ...ops.copy(ptr(locs.ramPointer), saveTo, context), // save location where it was written
-    ...writeToRam(abs(FintTypes.Int)), // data type
-    ...writeToRam(val, context), // value
   ];
 }
 
