@@ -58,6 +58,3 @@ export const digitsOfBigInt = (n: bigint, pad: number | null = null) => {
   if(pad !== null) while(digits.length < pad) digits.push(0n);
   return digits;
 }
-
-export const bigIntFromDigits = (digits: bigint[]) => digits.map((n, i) => n * 10n ** BigInt(i)).reduce((a, n) => a + n, 0n);
-

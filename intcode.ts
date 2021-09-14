@@ -1,6 +1,6 @@
 // this is just taken from my advent of code 2019 solutions. havent added anything to it during this project
 
-import { DefaultMap, digitsOfBigInt, bigIntFromDigits, range } from './tools.ts';
+import { DefaultMap, digitsOfBigInt, range } from './tools.ts';
 
 export class MachineMemory extends DefaultMap<bigint, bigint>{
   constructor(){
@@ -175,7 +175,7 @@ export const run = (state: MachineState, mInterface: MachineInterface, debug = f
     const opinfo = state.memory.get(state.pointer);
     const digits = digitsOfBigInt(opinfo, 5);
 
-    const opcode = bigIntFromDigits(digits.slice(0, 2));
+    const opcode = opinfo % 100n;
     if(!operators.has(opcode)) throw new Error(`Invalid op code! ${opcode}, position: ${state.pointer}`);
 
     const modes = digits.slice(2);
