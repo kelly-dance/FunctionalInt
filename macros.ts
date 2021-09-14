@@ -17,6 +17,10 @@ export const addReducible = (dependents: CompileData[]): Reducible => {
   return new Reducible(dependents, (vals) => vals.reduce((a,n) => a + n, 0n), []);
 }
 
+export const multReducible = (dependents: CompileData[]): Reducible => {
+  return new Reducible(dependents, (vals) => vals.reduce((a,n) => a * n, 1n), []);
+}
+
 export const addLabel = (data: CompileData, label?: symbol): CompileData => {
   if(!label) return data;
   if(typeof data === 'object'){
@@ -79,6 +83,44 @@ export const addArgs = (offset: Arg, arg: Arg): Arg => context => {
     insert: [
       ...insert,
       ...ops.add(abs(value), offset, ptr(tag), context)
+    ],
+    mode,
+  }
+}
+
+/**
+ * The adds to the literal value, be it an address or stack position
+ * mode of the second arg is preserved
+ */
+ export const multArgs = (offset: Arg, arg: Arg): Arg => context => {
+  const tag = Symbol('addConstantTarget');
+  const {value, insert, mode, constant} = arg(context);
+
+  // collapse at compile time
+  // both args are constant and the offset is absolute so there there is no pointer that needs to be followed to resolve it
+  const evaledOffset = offset(context);
+  if(constant && evaledOffset.constant && evaledOffset.mode === OpMode.absolute) {
+    return {
+      constant: true,
+      value: multReducible([value, evaledOffset.value]),
+      insert: [
+        // I honestly cant think of a situation where constant operations have code inserted
+        // it would feel weird to exclude this though
+        // maybe if I pack side effects into inserted code it could make sense
+        // could be useful for debugging
+        ...evaledOffset.insert,
+        ...insert,
+      ],
+      mode,
+    }
+  }
+
+  return {
+    constant: false,
+    value: addLabel(0, tag),
+    insert: [
+      ...insert,
+      ...ops.mult(abs(value), offset, ptr(tag), context)
     ],
     mode,
   }
@@ -211,7 +253,6 @@ export const finalize = (prog: CompileData[]): bigint[] => {
     const entry = prog[i];
     if(typeof entry === 'object' && entry instanceof HangingLabel){
       prog[i+1] = addLabel(prog[i+1], entry.labels[0]);
-
     }
     else newProg.push(entry);
   }
