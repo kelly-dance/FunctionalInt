@@ -1,22 +1,12 @@
-import * as int from './intcode.ts';
 import { parse } from './parser.ts';
 import { ops, abs, stack, addLabel, finalize, resolveRef, addArgs } from './macros.ts';
 import * as AST from './AST.ts';
 import { CompilationContext, CompileData, locs, builtinScope } from './typesConstansts.ts';
-import { readFile } from './tools.ts';
 import { builtins, internalBuiltIns, BuiltIn } from './builtins.ts';
 
-if(!Deno.args.length) Deno.exit();
-const code = readFile(Deno.args[0]);
+export const parseAndCompile = (code: string) => compile(parse(code));
 
-const ast = parse(code);
-
-// console.log(Deno.inspect(ast, {
-//   depth: 100,
-//   colors: true,
-// }));
-
-const compile = (ast: AST.FintAssignment[]): bigint[] => {
+export const compile = (ast: AST.FintAssignment[]): bigint[] => {
   // add builtins to the scope and assign labels
   const builtinLocations: symbol[] = [];
   const check = (b: BuiltIn): boolean => {
@@ -80,19 +70,3 @@ const compile = (ast: AST.FintAssignment[]): bigint[] => {
   ];
   return finalize(prog);
 }
-
-const compiled = compile(ast);
-console.log(`Generated program size:`, compiled.length);
-
-if(Deno.args.length >= 2) Deno.writeTextFileSync(Deno.args[1], compiled.join(','))
-
-const state = int.prepareState(compiled);
-try{
-  int.run(state, int.terminal, false);
-}catch(e){
-  console.error(e);
-}
-
-// for(const key of state.memory.keys()){
-//   console.log(key, state.memory.get(key))
-// }
