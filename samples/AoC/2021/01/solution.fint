@@ -1,0 +1,16 @@
+# program input is first the number of lines in the input, then the value of each line
+depths = map input $ list $ input _;
+
+reduce = f => acc => ls => helper f acc ls 0
+  where
+    helper = f => acc => ls => i => (lt i $ len ls) (_ => helper f (f (get i ls) acc) ls $ succ i) (_ => acc) _;
+
+solve = n => print $ reduce (reducer n) 0 $ list $ sub (len depths) n;
+  where
+    reducer = n => i => acc => # binding on where is to the assignment not the function :/ thats why n is passed again
+      (lt (get i depths) (get (add n i) depths)) # if (depths[i] < depths[i + n])
+        (succ acc) # then acc + 1
+        acc; # else acc
+
+part1 = solve 1; # the 1 and 3 is the offset for the comparison between elements
+part2 = solve 3;

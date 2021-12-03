@@ -117,7 +117,11 @@ export const parseRef: Parser<FintVariableReference> = (tokens, pos, scope) => {
 
 export const parseTuple: Parser<FintTuple> = (tokens, pos, scope) => {
   const [success, initResults, newPos] = composeParsers(parseToken('['), parseValue)(tokens, pos, scope);
-  if(!success) return [false, null, pos];
+  if(!success) {
+    const [emptySuccess, _, newPos] = composeParsers(parseToken('['), parseToken(']'))(tokens, pos, scope);
+    if(emptySuccess) return [true, new FintTuple(scope, _![0].meta, []), newPos];
+    return [false, null, pos];
+  }
   const values = [initResults![1]];
   let curPos = newPos;
   while(true){

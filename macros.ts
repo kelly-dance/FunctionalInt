@@ -1,4 +1,5 @@
-import { CompilationContext, Reducible, CompileData, HangingLabel, locs } from './typesConstansts.ts';
+import { CompilationContext, Reducible, CompileData, BreakPoint, HangingLabel, locs, RootLevelCompileData } from './typesConstansts.ts';
+import { DefaultMap } from './tools.ts';
 
 export enum OpMode {
   pointer = 0,
@@ -46,9 +47,9 @@ export const formatCall = (context: CompilationContext | undefined, opCode: bigi
   ];
 }
 
-export const ptr = (value: CompileData, tag?: symbol): Arg => () => ({value: addLabel(value, tag), insert: [], mode: OpMode.pointer, constant: true });
-export const abs = (value: CompileData, tag?: symbol): Arg => () => ({value: addLabel(value, tag), insert: [], mode: OpMode.absolute, constant: true });
-export const stack = (value: CompileData, tag?: symbol): Arg => () => ({value: addLabel(value, tag), insert: [], mode: OpMode.stack, constant: true });
+export const ptr = (value: CompileData, tag?: symbol): Arg => () => ({value: addLabel(value, tag), insert: [], mode: OpMode.pointer, constant: !tag });
+export const abs = (value: CompileData, tag?: symbol): Arg => () => ({value: addLabel(value, tag), insert: [], mode: OpMode.absolute, constant: !tag });
+export const stack = (value: CompileData, tag?: symbol): Arg => () => ({value: addLabel(value, tag), insert: [], mode: OpMode.stack, constant: !tag });
 
 /**
  * The adds to the literal value, be it an address or stack position
@@ -165,7 +166,7 @@ export const absToPtr = (arg: Arg): Arg => context => {
 }
 
 /**
- * takes an absolute arg and returns a pointer arg
+ * takes an resolves the value at stack location and returns it as a pointer
  */
  export const stackToPtr = (arg: Arg): Arg => context => {
   const {value, insert, mode, constant} = arg(context);
@@ -218,6 +219,7 @@ export const ops = {
   },
   mult: (a: Arg, b: Arg, out: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 2n, [a,b,out], tag),
   copy: (from: Arg, to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => {
+    return ops.add(abs(0), from, to, context, tag);
     const x = Math.random();
     if(x < 0.25) return ops.mult(from, abs(1), to, context, tag);
     if(x < 0.5) return ops.mult(abs(1), from, to, context, tag);
@@ -228,6 +230,7 @@ export const ops = {
   write: (val: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 4n, [val], tag),
   jt: (val: Arg, to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => formatCall(context, 5n, [val, to], tag),
   jump: (to: Arg, context?: CompilationContext, tag?: symbol): CompileData[] => {
+    return ops.jt(abs(1), to, context, tag);
     if(Math.random() < 0.66) return ops.jt(abs(Math.floor(Math.random()*999)+1), to, context, tag);
     return ops.jf(abs(0), to, context, tag);
   },
@@ -246,20 +249,26 @@ export const writeToRam = (val: Arg, context?: CompilationContext): CompileData[
   ];
 }
 
-export const finalize = (prog: CompileData[]): bigint[] => {
+export const finalize = (prog: RootLevelCompileData[]): {
+  program: bigint[],
+  breakpoints: Map<bigint, string>,
+  labels: Map<bigint, string[]>,
+} => {
   // collapse hanging labels
   const newProg: CompileData[] = [];
+  const breakpoints = new Map<bigint, string>();
   for(let i = 0; i < prog.length; i++){
     const entry = prog[i];
     if(typeof entry === 'object' && entry instanceof HangingLabel){
-      prog[i+1] = addLabel(prog[i+1], entry.labels[0]);
+      let skip = 1;
+      while(prog[i+skip] instanceof BreakPoint) skip++;
+      prog[i+skip] = addLabel(prog[i+skip] as CompileData, entry.labels[0]);
+    } else if(typeof entry === 'object' && entry instanceof BreakPoint){
+      breakpoints.set(BigInt(newProg.length), entry.label)
     }
     else newProg.push(entry);
   }
-  // newProg.forEach((entry, i) => {
-  //   console.log(i, entry)
-  // })
-  // record position of symbols
+
   const positions = new Map<symbol, bigint>();
   for(let i = 0; i < newProg.length; i++){
     const entry = newProg[i];
@@ -279,5 +288,16 @@ export const finalize = (prog: CompileData[]): bigint[] => {
     if(!positions.has(data)) throw new Error(`Unlocated symbol pointer! ${data.toString()}`);
     return positions.get(data)!;
   }
-  return newProg.map(processCompileData)
+
+  const labels = new DefaultMap<bigint, string[]>(() => []);
+  for(const [sym, pos] of positions){
+    labels.get(pos).push(sym.description || "unnamed");
+  }
+
+  const compiled = newProg.map(processCompileData);
+  return {
+    program: compiled,
+    breakpoints,
+    labels,
+  }
 }

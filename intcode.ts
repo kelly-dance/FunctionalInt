@@ -125,7 +125,7 @@ operators.set(99n, (state, accessor) => {
   state.complete = true;
 })
 
-export const prepareState = (program: (bigint | number)[]): MachineState => {
+export const prepareState = (program: (bigint | number)[], breakpoints?: Map<number, string>): MachineState => {
   const memory = new MachineMemory();
   for(let i = 0; i < program.length; i++){
     memory.set(BigInt(i), BigInt(program[i]));
@@ -167,7 +167,7 @@ opArgMap.set(8n, 3);
 opArgMap.set(9n, 1);
 opArgMap.set(99n,0);
 
-export const run = (state: MachineState, mInterface: MachineInterface, debug = false) => {
+export const run = (state: MachineState, mInterface: MachineInterface) => {
   if(state.complete) throw new Error('Trying to boot a machine that is already complete?');
   if(state.running) throw new Error('Trying to boot a machine that is already running?');
   state.running = true;
@@ -192,13 +192,129 @@ export const run = (state: MachineState, mInterface: MachineInterface, debug = f
           throw new Error('Unsupported parameter mode')
         },
         write: value => {
+          if(mode === 0n) state.memory.set(accessor.readRaw(), value);
+          else if(mode === 1n) throw new Error('Cannot write in immediate mode');
+          else if(mode === 2n) state.memory.set(state.relBase + accessor.readRaw(), value);
+          else throw new Error('Unsupported parameter mode')
+        }
+      }
+      return accessor;
+    })
+    operators.get(opcode)!(state, argAccesssors, mInterface);
+  }
+  return state;
+}
+
+type DebugSettings = {
+  breakpoints: Map<bigint, string>,
+  labels: Map<bigint, string[]>,
+  dumpMemFilename: string,
+  logMemInteraction: boolean,
+  logEachOp: boolean,
+}
+const defaultDebugSettings: DebugSettings = {
+  breakpoints: new Map(),
+  labels: new Map(),
+  dumpMemFilename: 'memdump.txt',
+  logMemInteraction: false,
+  logEachOp: false,
+}
+export const debugRun = (state: MachineState, mInterface: MachineInterface, settings: Partial<DebugSettings> = defaultDebugSettings) => {
+  if(state.complete) throw new Error('Trying to boot a machine that is already complete?');
+  if(state.running) throw new Error('Trying to boot a machine that is already running?');
+  const fullSettings: DebugSettings = { ...defaultDebugSettings, ...settings };
+  state.running = true;
+  let stepping = false;
+  let lastPause = 0;
+  const handlePause = (): void => {
+    const input = prompt('Command: ("info" for more info)')
+    if(!input) return;
+    switch(input){
+      case 's':
+      case 'step': {
+        stepping = true;
+        return;
+      }
+      case 'f':
+      case 'forward': {
+        return;
+      }
+      case 'm':
+      case 'memory': {
+        fullSettings.logMemInteraction = !fullSettings.logMemInteraction;
+        return handlePause();
+      }
+      case 'o':
+      case 'ops': {
+        fullSettings.logEachOp = !fullSettings.logEachOp;
+        return handlePause();
+      }
+      case 'd':
+      case 'dump': {
+        const mem = [...state.memory.entries()].sort(([a],[b]) => Number(a - b));
+        const dump = mem.map(([a, v]) => `${a}: ${v} ${fullSettings.labels.get(a)?.join(' ')}`).join('\n');
+        Deno.writeTextFileSync(fullSettings.dumpMemFilename, dump);
+        return handlePause();
+      }
+      case 'i':
+      case 'info': {
+        console.log([
+          `Available Commands:`,
+          `(s)tep: steps forward single instruction and logs all activity`,
+          `(f)orward: runs to next breakpoint`,
+          `(m)emory: toggles logging memory interactions`,
+          `(o)ps: toggles logging each op`,
+          `(d)ump: dumps memory to file specificied in debugger settings (default: memdump.txt)`,
+          `(i)nfo: this`,
+        ].join('\n'))
+        return handlePause();
+      }
+      default: {
+        console.log("Unrecognized command. Use 'info' to see available commands!")
+        return handlePause();
+      }
+    }
+  }
+
+  while(state.running){
+
+    if(stepping || fullSettings.breakpoints.has(state.pointer)){
+      stepping = false;
+      if(lastPause > 1) console.log(`${lastPause} instructions ran`)
+      if(fullSettings.breakpoints.has(state.pointer))
+        console.log(`=== DEBUGGER HIT BREAKPOINT: ${fullSettings.breakpoints.get(state.pointer)} ===`)
+      console.log(`Loc: ${state.pointer}, Base: ${state.relBase} `)
+      lastPause = 0;
+      handlePause();
+    }
+
+    const opinfo = state.memory.get(state.pointer);
+    const digits = digitsOfBigInt(opinfo, 5);
+
+    const opcode = opinfo % 100n;
+    if(!operators.has(opcode)) throw new Error(`Invalid op code! ${opcode}, position: ${state.pointer}`);
+
+    const modes = digits.slice(2);
+    const argAccesssors: ArgInterface[] = modes.map((mode, i) => {
+      const location = state.pointer + BigInt(i + 1);
+      const accessor: ArgInterface = {
+        mode,
+        location,
+        readRaw: () => state.memory.get(location),
+        read: () => {
+          if(mode === 0n) return state.memory.get(accessor.readRaw());
+          if(mode === 1n) return accessor.readRaw();
+          if(mode === 2n) return state.memory.get(state.relBase + accessor.readRaw());
+          throw new Error('Unsupported parameter mode')
+        },
+        write: value => {
           if(mode === 0n) {
-            if(debug) console.log(`Writing ${value} to location ${accessor.readRaw()}`)
+            if(fullSettings.logMemInteraction || stepping) console.log(`Writing ${value} to location ${accessor.readRaw()}`)
             state.memory.set(accessor.readRaw(), value);
           }
           else if(mode === 1n) throw new Error('Cannot write in immediate mode');
           else if(mode === 2n) {
-            if(debug) console.log(`Writing ${value} to location ${state.relBase + accessor.readRaw()} (rel${accessor.readRaw()})`)
+            if(fullSettings.logMemInteraction || stepping) console.log(`Writing ${value} to location ${state.relBase + accessor.readRaw()} (rel${accessor.readRaw()})`)
             state.memory.set(state.relBase + accessor.readRaw(), value);
           }
           else throw new Error('Unsupported parameter mode')
@@ -206,14 +322,17 @@ export const run = (state: MachineState, mInterface: MachineInterface, debug = f
       }
       return accessor;
     })
-    if(debug) {
+    if(fullSettings.logEachOp || stepping) {
+      const labelDesc = range(opArgMap.get(opcode)! + 1)
+        .map(o => [o, fullSettings.labels.get(BigInt(o) + state.pointer)] as [number, string[] | undefined])
+        .filter(([o, l]) => l && l.length)
+        .map(([o, l]) => `${o}: ${l!.join(', ')}`)
+        .join(' ');
       const opDesc = `${opNameMap.get(opcode)}(${range(opArgMap.get(opcode)!).map(i => `${opModeMap.get(modes[i])} ${state.memory.get(state.pointer + 1n + BigInt(i))}`).join(', ')})`
-      console.log(`Loc: ${state.pointer}, Base: ${state.relBase}, Executing: ${opDesc} `)
+      console.log(`Loc: ${state.pointer}, Base: ${state.relBase}, ${labelDesc ? `Labels: ${labelDesc}, ` : ''}Executing: ${opDesc} `)
     }
     operators.get(opcode)!(state, argAccesssors, mInterface);
-    if(debug) {
-      // console.log([...state.memory.keys()].sort((a,b)=>Number(a-b)).map(i => `${i}:${state.memory.get(i)}`).join(', '))
-    }
+    lastPause++;
   }
   return state;
 }

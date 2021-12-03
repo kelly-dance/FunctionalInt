@@ -1,9 +1,4 @@
 # I pretty much just use this file to test things I am working on
 
-printll = tup => do
-  (print $ fst tup)
-  (printll $ snd tup _);
-
-y = [0, _ => x];
-x = [1, _ => y];
-main = printll y;
+in = [1];
+main = print $ reduce add 2 in;

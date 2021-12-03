@@ -1,7 +1,7 @@
-import { CompileData, FintScope, HangingLabel, locs, CompilationContext, FintMeta, builtinScope } from './typesConstansts.ts';
-import { ops, ptr, abs, stack, addLabel, resolvePtr, writeToRam, addArgs, absToPtr, resolveRef } from './macros.ts';
+import { CompileData, FintScope, HangingLabel, locs, CompilationContext, FintMeta, builtinScope, RootLevelCompileData, BreakPoint } from './typesConstansts.ts';
+import { ops, ptr, abs, stack, addLabel, resolvePtr, writeToRam, addArgs, absToPtr, resolveRef, stackToPtr, ptrToAbs } from './macros.ts';
 
-// ALL BUIlTINS USE SCOPE AT STACK+0
+// ALL BUILTINS USE SCOPE AT STACK+0
 // STACK+1 IS RESERVED
 // STACK+2 IS RETURN VALUE
 
@@ -19,7 +19,7 @@ const none: BuiltIn = (()=>{
 
 const makeBuiltin = (
   name: string,
-  fac: (context: CompilationContext) => CompileData[],
+  fac: (context: CompilationContext) => RootLevelCompileData[],
   copyReturn: boolean = true,
   deps: BuiltIn[] = [],
 ): BuiltIn => {
@@ -62,7 +62,7 @@ const makeBuiltin = (
 const makeMultiArgBuiltin = (
   name: string,
   args: string[],
-  fac: (context: CompilationContext) => CompileData[],
+  fac: (context: CompilationContext) => RootLevelCompileData[],
   copyReturn: boolean = true,
   deps: BuiltIn[] = [],
 ): BuiltIn => {
@@ -77,7 +77,7 @@ const makeMultiArgBuiltin = (
       const helper = (
         args: string[],
         parentScope: FintScope,
-      ): {impl: CompileData[], loc: symbol} => {
+      ): {impl: RootLevelCompileData[], loc: symbol} => {
         const selfLoc = Symbol(`${name}-${args[0]}`);
     
         const localScope = new FintScope(parentScope);
@@ -154,7 +154,7 @@ const input = makeBuiltin('input', context => {
   const result = Symbol(`addResult`)
   return [
     ...ops.read(ptr(result)),
-    ...ops.copy(abs(0, result), stack(0)), // write and save location
+    ...ops.copy(abs(0, result), stack(0)), // return
   ]
 }, false);
 
@@ -277,9 +277,251 @@ const getFn = makeMultiArgBuiltin('get', ['pos', 'tup'], context => {
   return [
     ...ops.copy(
       addArgs(
-        resolveRef('pos', 0),
+        addArgs(resolveRef('pos', 0), abs(1)), // skip first location
         absToPtr(resolvePtr(resolveRef('tup', 0))), // follow to location of tuple and treat it like a pointer
       ),
+      stack(0),
+      context
+    )
+  ]
+}, false);
+
+const list = makeBuiltin('list', context => {
+  const loop = Symbol('listCreatorLoop');
+  const loopCtr = Symbol('listCreatorLoopControl');
+  const loopCond = Symbol('listCreatorLoopCondition');
+  return [
+    ...ops.copy(ptr(locs.ramPointer), stack(2)), // save tuple location
+    ...ops.addTo(addArgs(resolveRef('arg', 0), abs(1)), ptr(locs.ramPointer), context), // allocate space for values
+    ...ops.copy(resolveRef('arg', 0), stackToPtr(stack(2)), context), // write length
+    ...ops.copy(abs(0), ptr(loopCtr)), // set loopCtr = 0
+
+    new HangingLabel(loop),
+    // mem[1+loopCtr] = loopCtr;
+    ...ops.copy(
+      abs(0, loopCtr),
+      addArgs( // (*stack[2]) + 1 + loopCtr 
+        addArgs(ptr(loopCtr), abs(1)),
+        stackToPtr(stack(2))
+      )
+    ),
+    ...ops.addTo(abs(1), ptr(loopCtr)), // loopCtr++;
+    ...ops.eq(resolveRef('arg', 0), ptr(loopCtr), ptr(loopCond), context), // loopCond = arg == loopCtr
+    ...ops.jf(abs(0, loopCond), abs(loop)), // if !loopCond goto loop
+  ]
+}, true);
+
+const map = makeMultiArgBuiltin('map', ['fn', 'ls'], context => {
+  const lsLen = Symbol('mapLen');
+  const loop = Symbol('mapLoop');
+  const loopCtr = Symbol('mapLoopControl');
+  const loopCond = Symbol('mapLoopCondition');
+  const argLoc = Symbol('mapFnArgLoc');
+  const postFn = Symbol('mapAfterCall');
+  const scopePtrLoc = Symbol('mapScopePtrLoc');
+  return [
+    ...ops.copy(ptr(locs.ramPointer), stack(2)), // save tuple location
+    ...ops.copy(
+      absToPtr(resolvePtr(resolveRef('ls', 0))), // resolve length of ls
+      ptr(lsLen),
+      context
+    ),
+    ...ops.addTo( // allocate space for values
+      addArgs(
+        abs(0, lsLen), // get length of ls
+        abs(1)
+      ),
+      ptr(locs.ramPointer),
+      context
+    ),
+    
+    ...ops.copy( // write length
+      ptr(lsLen), // get length of ls
+      stackToPtr(stack(2)),
+      context
+    ),
+
+    // build scope for fn calls
+    ...ops.moveStack(3), // moving to avoid stuff for internal call
+    ...ops.copy(ptr(locs.ramPointer), ptr(scopePtrLoc)), // save scope location
+    ...writeToRam(addArgs(resolveRef('fn', -3), ptr(1)), context), // set parent scope
+    ...ops.copy(ptr(locs.ramPointer), ptr(argLoc)), // write location for the arg to argLoc
+    ...ops.copy(abs(postFn), stack(1)), // save return location
+
+    ...ops.copy(abs(0), ptr(loopCtr)), // set loopCtr = 0
+
+    new HangingLabel(loop),
+    ...ops.copy(abs(0, scopePtrLoc), stack(0)), // save scope location
+    ...ops.copy( // copy val from original list to arg of scope
+      addArgs(
+        addArgs(ptr(loopCtr), abs(1)),
+        absToPtr(resolvePtr(resolveRef('ls', -3))), // follow to location of tuple and treat it like a pointer
+      ),
+      ptr(0, argLoc),
+      context,
+    ),
+
+    // make the call
+    ...ops.jump(resolvePtr(absToPtr(resolvePtr(resolveRef('fn', -3)))), context),
+
+    new HangingLabel(postFn),
+    // mem[1+loopCtr] = return val;
+    ...ops.copy(
+      stack(0),
+      addArgs( // (*stack[2]) + 1 + loopCtr 
+        addArgs(abs(0, loopCtr), abs(1)),
+        stackToPtr(stack(-1))
+      )
+    ),
+    ...ops.addTo(abs(1), ptr(loopCtr)), // loopCtr++;
+    ...ops.eq(ptr(lsLen), ptr(loopCtr), ptr(loopCond)), // loopCond = lsLen == loopCtr
+    ...ops.jf(abs(0, loopCond), abs(loop)), // if !loopCond goto loop
+
+    // after loop
+    ...ops.moveStack(-3), // restore stack
+  ]
+}, true);
+
+const foreach = makeMultiArgBuiltin('foreach', ['fn', 'ls'], context => {
+  const lsLen = Symbol('mapLen');
+  const loop = Symbol('mapLoop');
+  const loopCtr = Symbol('mapLoopControl');
+  const loopCond = Symbol('mapLoopCondition');
+  const argLoc = Symbol('mapFnArgLoc');
+  const postFn = Symbol('mapAfterCall');
+  const scopePtrLoc = Symbol('mapScopePtrLoc');
+  return [
+    ...ops.copy(
+      absToPtr(resolvePtr(resolveRef('ls', 0))), // resolve length of ls
+      ptr(lsLen),
+      context
+    ),
+
+    // build scope for fn calls
+    ...ops.moveStack(3), // moving to avoid stuff for internal call
+    ...ops.copy(ptr(locs.ramPointer), ptr(scopePtrLoc)), // save scope location
+    ...writeToRam(addArgs(resolveRef('fn', -3), ptr(1)), context), // set parent scope
+    ...ops.copy(ptr(locs.ramPointer), ptr(argLoc)), // write location for the arg to argLoc
+    ...ops.copy(abs(postFn), stack(1)), // save return location
+
+    ...ops.copy(abs(0), ptr(loopCtr)), // set loopCtr = 0
+
+    new HangingLabel(loop),
+    ...ops.copy(abs(0, scopePtrLoc), stack(0)), // save scope location
+    ...ops.copy( // copy val from original list to arg of scope
+      addArgs(
+        addArgs(ptr(loopCtr), abs(1)),
+        absToPtr(resolvePtr(resolveRef('ls', -3))), // follow to location of tuple and treat it like a pointer
+      ),
+      ptr(0, argLoc),
+      context,
+    ),
+
+    // make the call
+    ...ops.jump(resolvePtr(absToPtr(resolvePtr(resolveRef('fn', -3)))), context),
+
+    new HangingLabel(postFn),
+    ...ops.addTo(abs(1), ptr(loopCtr)), // loopCtr++;
+    ...ops.eq(abs(0, lsLen), abs(0, loopCtr), ptr(loopCond)), // loopCond = lsLen == loopCtr
+    ...ops.jf(abs(0, loopCond), abs(loop)), // if !loopCond goto loop
+
+    // after loop
+    ...ops.moveStack(-3), // restore stack
+  ]
+}, true);
+
+const reduce = makeMultiArgBuiltin('reduce', ['fn', 'acc', 'ls'], context => {
+  const lsLen = Symbol('reduceLen');
+  const loop = Symbol('reduceLoop');
+  const afterLoop = Symbol('reduceAfterLoop');
+  const loopCtr = Symbol('reduceLoopControl');
+  const loopCond = Symbol('reduceLoopCondition');
+  const argLoc = Symbol('reduceFnArgLoc');
+  const accWriteLoc = Symbol('reduceFnAccWriteLoc');
+  const accLoc = Symbol('reduceFnAccLoc');
+  const postOuterFn = Symbol('reduceAfterOuterCall');
+  const postInnerFn = Symbol('reduceAfterInnerCall');
+  const outerScopePtrLoc = Symbol('reduceOuterScopePtrLoc');
+  const innerScopePtrLoc = Symbol('reduceInnerScopePtrLoc');
+  return [
+    ...ops.copy(ptr(locs.ramPointer), stack(2)), // save tuple location
+    ...ops.copy(
+      absToPtr(resolvePtr(resolveRef('ls', 0))), // resolve length of ls
+      ptr(lsLen),
+      context
+    ),
+
+    ...ops.moveStack(3), // moving to avoid stuff for internal call
+
+    // build scope for outer fn calls
+    ...ops.copy(ptr(locs.ramPointer), ptr(outerScopePtrLoc)), // save scope location
+    ...writeToRam(addArgs(resolveRef('fn', -3), ptr(1)), context), // set parent scope
+    ...ops.copy(ptr(locs.ramPointer), ptr(argLoc)), // write location for the arg to argLoc
+
+    // build scope for inner fn calls
+    ...ops.copy(ptr(locs.ramPointer), ptr(innerScopePtrLoc)), // save scope location
+    ...writeToRam(addArgs(ptr(outerScopePtrLoc), ptr(1))), // set parent scope to outer scope ***
+    ...ops.copy(ptr(locs.ramPointer), ptr(accLoc)), // write location for the arg to accLoc
+
+    ...ops.copy(resolveRef('acc', -3), ptr(accWriteLoc), context), // initialize acc value
+    ...ops.copy(ptr(accWriteLoc), stack(0)), // needed if the list is empty
+    ...ops.copy(abs(0), ptr(loopCtr)), // set loopCtr = 0
+
+    new HangingLabel(loop),
+    new BreakPoint('enter loop'),
+    ...ops.eq(abs(0, lsLen), abs(0, loopCtr), ptr(loopCond)), // loopCond = lsLen == loopCtr
+    ...ops.jt(abs(0, loopCond), abs(afterLoop)), // if !loopCond goto loop
+
+    ...ops.copy(abs(0, outerScopePtrLoc), stack(0)), // save scope location
+    ...ops.copy( // copy val from original list to arg of scope
+      addArgs(
+        addArgs(ptr(loopCtr), abs(1)),
+        absToPtr(resolvePtr(resolveRef('ls', -3))), // follow to location of tuple and treat it like a pointer
+      ),
+      ptr(0, argLoc),
+      context,
+    ),
+
+    ...ops.copy(abs(postOuterFn), stack(1)), // save return location
+
+    // make the call
+    ...ops.jump(resolvePtr(absToPtr(resolvePtr(resolveRef('fn', -3)))), context),
+
+    new HangingLabel(postOuterFn),
+
+    ...ops.copy(stack(0), stack(2)), // move return value out of way
+    ...ops.copy(abs(0, innerScopePtrLoc), stack(0)), // save scope location
+    ...ops.copy( // copy val from original list to arg of scope
+      abs(0, accWriteLoc),
+      ptr(0, accLoc),
+      context,
+    ),
+
+    ...ops.copy(abs(postInnerFn), stack(1)), // save return location
+
+    // make the call
+    ...ops.jump(resolvePtr(stackToPtr(stack(2)))), /// jump to first value of function instance? idk error around here
+
+    new HangingLabel(postInnerFn),
+
+    // acc = return val;
+    ...ops.copy(
+      stack(0),
+      ptr(accWriteLoc)
+    ),
+    ...ops.addTo(abs(1), ptr(loopCtr)), // loopCtr++;
+    ...ops.jump(abs(loop)),
+
+    new HangingLabel(afterLoop),
+    ...ops.moveStack(-3), // restore stack
+    ...ops.copy(stack(3), stack(0)), // copy last return value as final return
+  ]
+}, false);
+
+const len = makeBuiltin('len', context => {
+  return [
+    ...ops.copy(
+      absToPtr(resolvePtr(resolveRef('arg', 0))), // follow to location of tuple and treat it like a pointer
       stack(0),
       context
     )
@@ -289,7 +531,10 @@ const getFn = makeMultiArgBuiltin('get', ['pos', 'tup'], context => {
 const fst = makeBuiltin('fst', context => {
   return [
     ...ops.copy(
-      absToPtr(resolvePtr(resolveRef('arg', 0))), // follow to location of tuple and treat it like a pointer
+      addArgs(
+        abs(1), // add one to get the second value
+        absToPtr(resolvePtr(resolveRef('arg', 0))), // follow to location of tuple and treat it like a pointer
+      ),
       stack(0),
       context
     )
@@ -300,7 +545,7 @@ const snd = makeBuiltin('snd', context => {
   return [
     ...ops.copy(
       addArgs(
-        abs(1), // add one to get the second value
+        abs(2), // add two to get the second value
         absToPtr(resolvePtr(resolveRef('arg', 0))), // follow to location of tuple and treat it like a pointer
       ),
       stack(0),
@@ -454,6 +699,11 @@ export const builtins: BuiltIn[] = [
   lt,
   sub,
   getFn,
+  list,
+  map,
+  foreach,
+  reduce,
+  len,
   fst,
   snd,
   mod,
@@ -469,7 +719,7 @@ export type BuiltIn = {
   // wait
   // thats actually kinda dumb tho cause I can reference builtins by symbol directly lol
   // whatever im not changing it right now
-  impl: () => CompileData[],
+  impl: () => RootLevelCompileData[],
   dependsOn: BuiltIn[],
 }
 
@@ -478,7 +728,7 @@ export type BuiltIn = {
  * stack-2: parent scope
  * stack-1 return address
  */
-const allocateScope: CompileData[] = [
+const allocateScope: RootLevelCompileData[] = [
   new HangingLabel(locs.allocateScopeSym),
   ...ops.copy(ptr(locs.ramPointer), stack(3)),
   ...writeToRam(stack(1)),
@@ -487,6 +737,6 @@ const allocateScope: CompileData[] = [
   ...ops.jump(stack(2)),
 ]
 
-export const internalBuiltIns: CompileData[] = [
+export const internalBuiltIns: RootLevelCompileData[] = [
   ...allocateScope,
 ];

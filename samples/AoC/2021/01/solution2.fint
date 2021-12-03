@@ -1,0 +1,12 @@
+# program input is first the number of lines in the input, then the value of each line
+depths = map input $ list $ input _;
+
+sum = reduce add 0; # reduce is built in but sum isnt yet :/
+
+solve = n =>
+  print $ sum $ map # print(sum(map(first line below, and second line below)))
+                (i => (lt (get i depths) (get (add n i) depths)) 1 0) # python equiv: lambda i: 1 if depths[i] < depths[i + n] else 0
+                $ list $ sub (len depths) n; # python equiv: range(len(depths) - n)
+
+part1 = solve 1; # the 1 and 3 is the offset for the comparison between elements
+part2 = solve 3;

@@ -19,7 +19,7 @@ export class Reducible {
     public reducer: (val: bigint[]) => bigint,
     public labels: symbol[],
   ){
-    if(dependents.some(dep => typeof dep === 'object' && dep.labels.length))
+    if(dependents.some(dep => typeof dep === 'object' && !(dep instanceof BreakPoint) && dep.labels.length))
       throw new Error('A reducible argument cannot be pointed to');
   }
 }
@@ -31,7 +31,12 @@ export class HangingLabel {
   }
 }
 
+export class BreakPoint {
+  constructor(public label: string){}
+}
+
 export type CompileData = number | bigint | symbol | { value: number | bigint | symbol, labels: symbol[] } | Reducible | HangingLabel;
+export type RootLevelCompileData = CompileData | BreakPoint;
 
 export class FintMeta {
   constructor(

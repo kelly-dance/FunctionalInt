@@ -60,11 +60,12 @@ export class FintTuple extends FintValue {
         ...ops.copy(stack(-2), stack(0)), // copy stack pointer
         ...ops.moveStack(2),
         ...ops.copy(ptr(locs.ramPointer), stack(-1)), // save tuple location
-        ...ops.addTo(abs(this.values.length), ptr(locs.ramPointer)), // allocate space for values
+        ...ops.addTo(abs(this.values.length + 1), ptr(locs.ramPointer)), // allocate space for values
+        ...ops.copy(abs(this.values.length), stackToPtr(stack(-1))), // write length
         ...compiled.flatMap((c, i) => {
           return [
             ...c.immediate,
-            ...ops.copy(stack(0), addArgs(abs(i), stackToPtr(stack(-1)))), // write into the tuple
+            ...ops.copy(stack(0), addArgs(abs(i + 1), stackToPtr(stack(-1)))), // write into the tuple
           ];
         }),
         ...ops.moveStack(-2),

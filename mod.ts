@@ -1,12 +1,12 @@
 import { parse } from './parser.ts';
 import { ops, abs, stack, addLabel, finalize, resolveRef, addArgs } from './macros.ts';
 import * as AST from './AST.ts';
-import { CompilationContext, CompileData, locs, builtinScope } from './typesConstansts.ts';
+import { CompilationContext, CompileData, locs, builtinScope, BreakPoint } from './typesConstansts.ts';
 import { builtins, internalBuiltIns, BuiltIn } from './builtins.ts';
 
 export const parseAndCompile = (code: string) => compile(parse(code));
 
-export const compile = (ast: AST.FintAssignment[]): bigint[] => {
+export const compile = (ast: AST.FintAssignment[]): ReturnType<typeof finalize> => {
   // add builtins to the scope and assign labels
   const builtinLocations: symbol[] = [];
   const check = (b: BuiltIn): boolean => {
@@ -68,5 +68,7 @@ export const compile = (ast: AST.FintAssignment[]): bigint[] => {
     // this way the global scope object is already at scope-2 when the program starts
     addLabel(locs.globalScopeSym, locs.stackBegin), 
   ];
-  return finalize(prog);
+  const finalized = finalize(prog);
+  console.log(`Final program length: ${finalized.program.length}`)
+  return finalized;
 }
